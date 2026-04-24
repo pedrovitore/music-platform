@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Music Platform</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 My Music Library</h1>
+            <button id="scanBtn" class="scan-btn">🔄 Scan for New Music</button>
+        </header>
+
+        <div class="player-section">
+            <div class="now-playing">
+                <h3 id="nowPlayingTitle">No song selected</h3>
+                <p id="nowPlayingArtist"></p>
+            </div>
+            <audio id="audioPlayer" controls class="audio-player">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+
+        <div class="playlist">
+            <h2>📀 Playlist</h2>
+            <div id="songsList" class="songs-grid">
+                <p>Loading songs...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
