@@ -3,8 +3,6 @@ const API_BASE = '/api';
 // Load songs on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadSongs();
-    
-    // Scan button handler
     document.getElementById('scanBtn').addEventListener('click', scanMusic);
 });
 
@@ -36,7 +34,12 @@ function displaySongs(songs) {
         <div class="song-card" onclick="playSong(${song.id}, '${escapeHtml(song.title)}', '${escapeHtml(song.artist)}')">
             <h3>${escapeHtml(song.title)}</h3>
             <p>${escapeHtml(song.artist)}</p>
-            <div class="duration">🎵 ${formatFileSize(song.fileSize)}</div>
+            <div class="metadata">
+                ${song.album ? `<span class="album">💿 ${escapeHtml(song.album)}</span>` : ''}
+                ${song.year ? `<span class="year">📅 ${song.year}</span>` : ''}
+                ${song.genre ? `<span class="genre">🎸 ${escapeHtml(song.genre)}</span>` : ''}
+                ${song.duration ? `<span class="duration">⏱️ ${song.duration}</span>` : ''}
+            </div>
         </div>
     `).join('');
 }
@@ -52,7 +55,7 @@ function playSong(id, title, artist) {
     document.getElementById('nowPlayingTitle').textContent = title;
     document.getElementById('nowPlayingArtist').textContent = artist;
     
-    // Add playing class to current song (optional visual feedback)
+    // Add visual feedback
     document.querySelectorAll('.song-card').forEach(card => {
         card.style.background = '#f7fafc';
     });
@@ -68,7 +71,8 @@ async function scanMusic() {
     try {
         const response = await fetch(`${API_BASE}/scan`, { method: 'POST' });
         if (response.ok) {
-            alert('Scan started! Check console for details. Reloading songs...');
+            const message = await response.text();
+            alert('Scan started! Check the server console for details.\n\n' + message);
             setTimeout(() => loadSongs(), 2000);
         } else {
             throw new Error('Scan failed');
@@ -82,7 +86,6 @@ async function scanMusic() {
     }
 }
 
-// Helper functions
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, function(m) {
