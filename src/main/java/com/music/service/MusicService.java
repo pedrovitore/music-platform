@@ -1,27 +1,25 @@
 package com.music.service;
 
-import com.music.model.Song;
-import com.music.repository.SongRepository;
-import org.apache.tika.exception.TikaException;
-import org.apache.tika.metadata.Metadata;
-import org.apache.tika.parser.ParseContext;
-import org.apache.tika.parser.mp3.Mp3Parser;
-import org.apache.tika.sax.BodyContentHandler;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.xml.sax.SAXException;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
-
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
+
+import org.jaudiotagger.audio.AudioFileIO;
+import org.jaudiotagger.audio.mp3.MP3File;
+import org.jaudiotagger.tag.FieldKey;
+import org.jaudiotagger.tag.Tag;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.stereotype.Service;
+
+import com.music.model.Song;
+import com.music.repository.SongRepository;
 
 @Service
 public class MusicService {
@@ -55,6 +53,8 @@ public class MusicService {
     }
     
     public void scanAndImportSongs() {
+    	System.out.println("Starting song scan...");
+    	
         Path musicPath = Paths.get(musicFolderPath);
         
         if (!Files.exists(musicPath)) {
@@ -64,6 +64,7 @@ public class MusicService {
         
         int importedCount = 0;
         int skippedCount = 0;
+        int errorCount = 0;
         
         try (Stream<Path> walk = Files.walk(musicPath)) {
             List<Path> mp3Files = walk.filter(Files::isRegularFile)
@@ -73,10 +74,17 @@ public class MusicService {
             System.out.println("Found " + mp3Files.size() + " MP3 files");
             
             for (Path filePath : mp3Files) {
-                if (importSongIfNew(filePath)) {
-                    importedCount++;
-                } else {
-                    skippedCount++;
+                ImportResult result = importSongIfNew(filePath);
+                switch (result) {
+                    case IMPORTED:
+                        importedCount++;
+                        break;
+                    case SKIPPED:
+                        skippedCount++;
+                        break;
+                    case ERROR:
+                        errorCount++;
+                        break;
                 }
             }
             
@@ -84,6 +92,7 @@ public class MusicService {
             System.out.println("Scan complete!");
             System.out.println("Imported: " + importedCount + " new songs");
             System.out.println("Skipped: " + skippedCount + " existing songs");
+            System.out.println("Errors: " + errorCount);
             System.out.println("Total in database: " + songRepository.count());
             System.out.println("========================================");
             
@@ -92,18 +101,18 @@ public class MusicService {
         }
     }
     
-    private boolean importSongIfNew(Path filePath) {
+    private ImportResult importSongIfNew(Path filePath) {
         String absolutePath = filePath.toAbsolutePath().toString();
         
-        // Check if song already exists
-        boolean exists = songRepository.findAll().stream()
-            .anyMatch(song -> song.getFilePath().equals(absolutePath));
-        
-        if (exists) {
-            return false;
-        }
-        
         try {
+            // PERFORMANCE IMPROVEMENT: Direct database query by file path
+            // Instead of loading all songs into memory and filtering
+            Optional<Song> existingSong = songRepository.findByFilePath(absolutePath);
+            
+            if (existingSong.isPresent()) {
+                return ImportResult.SKIPPED;
+            }
+            
             // Extract metadata using Tika
             Mp3Metadata metadata = extractMp3Metadata(filePath);
             
@@ -127,131 +136,63 @@ public class MusicService {
             if (metadata.album != null) {
                 System.out.println("  Album: " + metadata.album);
             }
-            return true;
+            return ImportResult.IMPORTED;
             
         } catch (Exception e) {
             System.err.println("✗ Failed to import: " + filePath.getFileName());
             System.err.println("  Error: " + e.getMessage());
-            return false;
+            return ImportResult.ERROR;
         }
     }
     
-    private Mp3Metadata extractMp3Metadata(Path filePath) throws IOException, TikaException, SAXException {
+    private Mp3Metadata extractMp3Metadata(Path filePath) throws Exception {
         Mp3Metadata metadata = new Mp3Metadata();
         
-        try (InputStream input = new FileInputStream(filePath.toFile())) {
-            BodyContentHandler handler = new BodyContentHandler();
-            Metadata tikaMetadata = new Metadata();
-            ParseContext parseContext = new ParseContext();
-            
-            Mp3Parser parser = new Mp3Parser();
-            parser.parse(input, handler, tikaMetadata, parseContext);
-            
-            // Extract standard MP3 metadata
-            metadata.title = tikaMetadata.get("title");
-            metadata.artist = tikaMetadata.get("xmpDM:artist");
-            if (metadata.artist == null) {
-                metadata.artist = tikaMetadata.get("dc:creator");
-            }
-            if (metadata.artist == null) {
-                metadata.artist = tikaMetadata.get("artist");
-            }
-            
-            metadata.album = tikaMetadata.get("xmpDM:album");
-            if (metadata.album == null) {
-                metadata.album = tikaMetadata.get("album");
-            }
-            
-            metadata.genre = tikaMetadata.get("xmpDM:genre");
-            if (metadata.genre == null) {
-                metadata.genre = tikaMetadata.get("genre");
-            }
-            
-            // Extract year
-            String yearStr = tikaMetadata.get("xmpDM:releaseDate");
-            if (yearStr == null) {
-                yearStr = tikaMetadata.get("year");
-            }
-            if (yearStr != null && yearStr.length() >= 4) {
-                try {
-                    metadata.year = Integer.parseInt(yearStr.substring(0, 4));
-                } catch (NumberFormatException e) {
-                    // Ignore parsing errors
-                }
-            }
-            
-            // Extract track number
-            String trackStr = tikaMetadata.get("xmpDM:trackNumber");
-            if (trackStr == null) {
-                trackStr = tikaMetadata.get("trackNumber");
-            }
-            if (trackStr != null) {
-                // Handle formats like "5/12" or just "5"
-                String[] parts = trackStr.split("/");
-                try {
-                    metadata.trackNumber = Integer.parseInt(parts[0]);
-                } catch (NumberFormatException e) {
-                    // Ignore
-                }
-            }
-            
-            // Extract duration
-            String durationStr = tikaMetadata.get("xmpDM:duration");
-            if (durationStr == null) {
-                durationStr = tikaMetadata.get("duration");
-            }
-            if (durationStr != null) {
-                metadata.duration = formatDuration(durationStr);
-            }
-            
-            // If duration still null, try to get it in seconds
-            if (metadata.duration == null) {
-                String secondsStr = tikaMetadata.get("xmpDM:durationSeconds");
-                if (secondsStr != null) {
-                    try {
-                        double seconds = Double.parseDouble(secondsStr);
-                        metadata.duration = formatDurationFromSeconds(seconds);
-                    } catch (NumberFormatException e) {
-                        // Ignore
-                    }
-                }
-            }
+        // JAudiotagger only reads the tag sections (usually first/last few KB of the file)
+        MP3File mp3File = (MP3File) AudioFileIO.read(filePath.toFile());
+        Tag tag = mp3File.getTag();
+        
+        if (tag != null) {
+            // Extract all available metadata - these operations don't read the audio data
+            metadata.title = tag.getFirst(FieldKey.TITLE);
+            metadata.artist = tag.getFirst(FieldKey.ARTIST);
+            metadata.album = tag.getFirst(FieldKey.ALBUM);
+            metadata.genre = tag.getFirst(FieldKey.GENRE);
+            metadata.year = parseYear(tag.getFirst(FieldKey.YEAR));
+            metadata.trackNumber = parseTrackNumber(tag.getFirst(FieldKey.TRACK));
+            metadata.duration = formatDurationFromSeconds(mp3File.getAudioHeader().getTrackLength());
+        }
+        
+        // Fallback to filename for title if metadata missing
+        if (metadata.title == null || metadata.title.isEmpty()) {
+            metadata.title = filePath.getFileName().toString().replaceFirst("\\.[^.]*$", "");
         }
         
         return metadata;
     }
     
-    private String formatDuration(String durationStr) {
-        // Tika often returns duration in format "PT3M45S" (ISO 8601)
-        if (durationStr != null && durationStr.startsWith("PT")) {
+    private Integer parseYear(String yearStr) {
+        if (yearStr != null && yearStr.length() >= 4) {
             try {
-                String timeStr = durationStr.substring(2);
-                int minutes = 0;
-                int seconds = 0;
-                
-                if (timeStr.contains("M")) {
-                    String minutesPart = timeStr.substring(0, timeStr.indexOf("M"));
-                    minutes = Integer.parseInt(minutesPart);
-                    timeStr = timeStr.substring(timeStr.indexOf("M") + 1);
-                }
-                
-                if (timeStr.contains("S")) {
-                    String secondsPart = timeStr.substring(0, timeStr.indexOf("S"));
-                    seconds = Integer.parseInt(secondsPart);
-                }
-                
-                return String.format("%d:%02d", minutes, seconds);
-            } catch (NumberFormatException e) {
-                return null;
-            }
+                return Integer.parseInt(yearStr.substring(0, 4));
+            } catch (NumberFormatException e) { return null; }
         }
-        return durationStr;
+        return null;
     }
-    
-    private String formatDurationFromSeconds(double seconds) {
-        int totalSeconds = (int) seconds;
-        int minutes = totalSeconds / 60;
-        int secs = totalSeconds % 60;
+
+    private Integer parseTrackNumber(String trackStr) {
+        if (trackStr != null && trackStr.matches("\\d+.*")) {
+            String[] parts = trackStr.split("/");
+            try {
+                return Integer.parseInt(parts[0]);
+            } catch (NumberFormatException e) { return null; }
+        }
+        return null;
+    }
+
+    private String formatDurationFromSeconds(int seconds) {
+        int minutes = seconds / 60;
+        int secs = seconds % 60;
         return String.format("%d:%02d", minutes, secs);
     }
     
@@ -264,5 +205,9 @@ public class MusicService {
         Integer year;
         Integer trackNumber;
         String duration;
+    }
+    
+    private enum ImportResult {
+        IMPORTED, SKIPPED, ERROR
     }
 }
