@@ -1,10 +1,25 @@
 package com.music.repository;
 
-import com.music.model.Song;
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import com.music.model.Song;
+
 @Repository
 public interface SongRepository extends JpaRepository<Song, Long> {
-    // You can add custom queries here if needed
+    
+    // PERFORMANCE IMPROVEMENT: Direct query by file path using database index
+    Optional<Song> findByFilePath(String filePath);
+    
+    // Additional useful methods for future optimizations
+    boolean existsByFilePath(String filePath);
+    
+    List<Song> findByArtistContainingIgnoreCase(String artist);
+    
+    List<Song> findByTitleContainingIgnoreCase(String title);
+    
+    void deleteByFilePath(String filePath);
 }
