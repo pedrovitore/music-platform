@@ -3,7 +3,10 @@ package com.music.model;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "songs")
+@Table(name = "songs", indexes = {
+	    @Index(name = "idx_file_path", columnList = "filePath", unique = true),
+	    @Index(name = "idx_random", columnList = "id")  // Helps with random ordering
+	})
 public class Song {
     
     @Id

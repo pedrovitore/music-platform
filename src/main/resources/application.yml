@@ -27,6 +27,6 @@ spring:
 # Music folder path - CHANGE THIS TO YOUR PATH
 # Windows example:
 music:
-  folder: F:\Nova pasta\Música
+  folder: F:\Nova pasta\Música\Rock
 # Mac/Linux example:
 # music.folder=/Users/yourname/Music

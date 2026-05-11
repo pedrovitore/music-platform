@@ -10,16 +10,14 @@ let currentIndex = -1;
 let isShuffle = false;
 let isRepeat = false;
 let currentVolume = 70;
+let currentPage = 0;
+let songsPerPage = 100;
+let totalSongs = 0;
+let isLoading = false;
+let hasMoreSongs = true;
 
 // DOM Elements
 let progressInterval = null;
-
-// Initialize Application
-document.addEventListener('DOMContentLoaded', () => {
-    initializeEventListeners();
-    loadSongs();
-    setupPlayerControls();
-});
 
 function initializeEventListeners() {
     // Navigation
@@ -83,29 +81,87 @@ function setupPlayerControls() {
     progressBg.addEventListener('click', seekToPosition);
 }
 
-async function loadSongs() {
-    const songsList = document.getElementById('songsList');
-    songsList.innerHTML = '<tr><td colspan="6" class="loading-state"><i class="fas fa-spinner fa-spin"></i><br>Loading your music...</td></tr>';
+async function loadSongs(reset = true) {
+    if (reset) {
+        currentPage = 0;
+        hasMoreSongs = true;
+        document.getElementById('songsList').innerHTML = '';
+    }
+    
+    if (isLoading || !hasMoreSongs) return;
+    
+    isLoading = true;
+    showLoadingIndicator();
     
     try {
-        const response = await fetch(`${API_BASE}/songs`);
+        // Updated API call with pagination
+        const response = await fetch(`${API_BASE}/songs?page=${currentPage}&limit=${songsPerPage}`);
         if (!response.ok) throw new Error('Failed to load songs');
         
-        const songs = await response.json();
-        currentPlaylist = songs;
-        displaySongs(songs);
-        document.getElementById('songCount').textContent = songs.length;
+        const data = await response.json();
+        const songs = data.songs;
+        totalSongs = data.totalItems;
+        hasMoreSongs = data.hasMore;
+        
+        if (reset) {
+            displaySongs(songs);
+        } else {
+            appendSongs(songs);
+        }
+        
+        currentPage++;
+        document.getElementById('songCount').textContent = totalSongs;
+        
+        // Setup infinite scroll
+        setupInfiniteScroll();
         
     } catch (error) {
         console.error('Error loading songs:', error);
-        songsList.innerHTML = '<tr><td colspan="6" class="loading-state"><i class="fas fa-exclamation-triangle"></i><br>Failed to load songs. Make sure the backend is running.</td></tr>';
+        if (reset) {
+            document.getElementById('songsList').innerHTML = 
+                '<div class="loading-state"><i class="fas fa-exclamation-triangle"></i><br>Failed to load songs</div>';
+        }
+    } finally {
+        isLoading = false;
+        hideLoadingIndicator();
     }
+}
+
+function addRefreshButton() {
+    const header = document.querySelector('.content-header');
+    const refreshBtn = document.createElement('button');
+    refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Random Songs';
+    refreshBtn.className = 'scan-button';
+    refreshBtn.style.marginLeft = 'auto';
+    refreshBtn.onclick = () => {
+        currentPage = 0;
+        loadSongs(true);
+        showNotification('Refreshed with new random songs!', 'success');
+    };
+    header.appendChild(refreshBtn);
+}
+
+function showLoadingIndicator() {
+    const tbody = document.getElementById('songsList');
+    const loadingRow = document.createElement('tr');
+    loadingRow.id = 'loadingRow';
+    loadingRow.innerHTML = '<td colspan="6" class="loading-state"><i class="fas fa-spinner fa-spin"></i><br>Loading more songs...</td>';
+    
+    // Only add if not already present
+    if (!document.getElementById('loadingRow')) {
+        tbody.appendChild(loadingRow);
+    }
+}
+
+function hideLoadingIndicator() {
+    const loadingRow = document.getElementById('loadingRow');
+    if (loadingRow) loadingRow.remove();
 }
 
 function displaySongs(songs) {
     const tbody = document.getElementById('songsList');
     
-    if (songs.length === 0) {
+    if (songs.length === 0 && totalSongs === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="loading-state"><i class="fas fa-music"></i><br>No songs found. Click "Scan Library" to import your MP3 files.</td></tr>';
         return;
     }
@@ -128,6 +184,64 @@ function displaySongs(songs) {
             </td>
         </tr>
     `).join('');
+    
+    // Update current playlist reference
+    currentPlaylist = songs;
+}
+
+function appendSongs(songs) {
+    const tbody = document.getElementById('songsList');
+    const startIndex = currentPlaylist.length;
+    
+    songs.forEach((song, idx) => {
+        const index = startIndex + idx;
+        const row = document.createElement('tr');
+        row.setAttribute('data-song-id', song.id);
+        row.setAttribute('data-song-index', index);
+        if (currentSongId === song.id) row.classList.add('playing');
+        
+        row.innerHTML = `
+            <td class="play-button-cell">
+                <button class="play-btn-mini" onclick="playSongById(${song.id}, ${index})">
+                    <i class="fas ${currentSongId === song.id && currentHowl && currentHowl.playing() ? 'fa-pause' : 'fa-play'}"></i>
+                </button>
+            </td>
+            <td class="song-title">${escapeHtml(song.title || 'Unknown Title')}</td>
+            <td class="song-artist">${escapeHtml(song.artist || 'Unknown Artist')}</td>
+            <td class="song-album">${escapeHtml(song.album || '—')}</td>
+            <td>${song.duration || '--:--'}</td>
+            <td>
+                <button class="play-btn-mini" onclick="addToFavorites(${song.id})">
+                    <i class="far fa-heart"></i>
+                </button>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+    
+    // Append to current playlist
+    currentPlaylist.push(...songs);
+}
+
+// Setup infinite scroll
+function setupInfiniteScroll() {
+    const contentBody = document.querySelector('.content-body');
+    
+    const checkScroll = () => {
+        if (isLoading || !hasMoreSongs) return;
+        
+        const scrollTop = contentBody.scrollTop;
+        const scrollHeight = contentBody.scrollHeight;
+        const clientHeight = contentBody.clientHeight;
+        
+        // Load more when 80% scrolled
+        if (scrollTop + clientHeight >= scrollHeight * 0.8) {
+            loadSongs(false);
+        }
+    };
+    
+    contentBody.addEventListener('scroll', checkScroll);
 }
 
 async function scanMusic() {
@@ -358,11 +472,19 @@ function updateVolumeIcon(volume) {
 
 function filterSongs() {
     const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+    
+    if (!searchTerm) {
+        loadSongs(true);
+        return;
+    }
+    
+    // Search through current playlist (or you could call a search endpoint)
     const filtered = currentPlaylist.filter(song => 
         (song.title && song.title.toLowerCase().includes(searchTerm)) ||
         (song.artist && song.artist.toLowerCase().includes(searchTerm)) ||
         (song.album && song.album.toLowerCase().includes(searchTerm))
     );
+    
     displaySongs(filtered);
 }
 
@@ -427,11 +549,22 @@ function switchView(viewId) {
     
     // Update header title
     const titles = {
-        library: 'My Library',
-        playlists: 'Playlists',
+        playing: 'Now Playing',
+        library: 'Music Library',
+        playlists: 'My Playlists',
         favorites: 'Favorites'
     };
-    document.getElementById('viewTitle').textContent = titles[viewId] || 'My Library';
+    document.getElementById('viewTitle').textContent = titles[viewId] || 'Music Player';
+    
+    // Load data based on view
+    if (viewId === 'library') {
+        loadLibrary();
+    } else if (viewId === 'playing') {
+        // Refresh the playing view if needed
+        if (currentPlaylist.length === 0) {
+            loadSongs(true);
+        }
+    }
 }
 
 function createPlaylist() {
@@ -489,6 +622,229 @@ function escapeHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+// Library functionality
+async function loadLibrary() {
+    showArtistsLoading();
+    try {
+        const response = await fetch(`${API_BASE}/library/artists`);
+        if (!response.ok) throw new Error('Failed to load library');
+        
+        const artists = await response.json();
+        displayArtists(artists);
+        updateLibraryStats(artists);
+        
+        // Setup search
+        setupArtistSearch();
+        
+    } catch (error) {
+        console.error('Error loading library:', error);
+        showLibraryError();
+    }
+}
+
+function displayArtists(artists) {
+    const container = document.getElementById('artistsList');
+    
+    if (!artists || artists.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-microphone-alt"></i>
+                <h3>No artists found</h3>
+                <p>Scan your music library to see artists here</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = '';
+    const template = document.getElementById('artistCardTemplate');
+    
+    artists.forEach(artist => {
+        const artistCard = template.content.cloneNode(true);
+        const card = artistCard.querySelector('.artist-card');
+        
+        // Set artist data
+        artistCard.querySelector('.artist-name').textContent = artist.artistName;
+        artistCard.querySelector('.album-count').textContent = artist.albumCount;
+        artistCard.querySelector('.song-count').textContent = artist.songCount;
+        
+        // Setup click handler for expansion
+        const header = artistCard.querySelector('.artist-header');
+        const albumsContainer = artistCard.querySelector('.artist-albums');
+        const expandIcon = artistCard.querySelector('.expand-icon');
+        
+        let albumsLoaded = false;
+        
+        header.addEventListener('click', async () => {
+            const isExpanded = albumsContainer.style.display === 'block';
+            
+            if (!isExpanded && !albumsLoaded) {
+                // Load albums for this artist
+                showAlbumsLoading(albumsContainer);
+                try {
+                    const albums = await loadArtistAlbums(artist.artistName);
+                    displayAlbums(albumsContainer, albums);
+                    albumsLoaded = true;
+                } catch (error) {
+                    showAlbumsError(albumsContainer);
+                }
+            }
+            
+            // Toggle visibility
+            albumsContainer.style.display = isExpanded ? 'none' : 'block';
+            expandIcon.classList.toggle('rotated');
+        });
+        
+        container.appendChild(artistCard);
+    });
+}
+
+async function loadArtistAlbums(artistName) {
+    const response = await fetch(`${API_BASE}/library/artists/${encodeURIComponent(artistName)}/albums`);
+    if (!response.ok) throw new Error('Failed to load albums');
+    return await response.json();
+}
+
+function displayAlbums(container, albums) {
+    container.innerHTML = '';
+    
+    if (!albums || albums.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No albums found for this artist</p></div>';
+        return;
+    }
+    
+    const albumTemplate = document.getElementById('albumTemplate');
+    
+    albums.forEach(album => {
+        const albumCard = albumTemplate.content.cloneNode(true);
+        
+        // Set album data
+        albumCard.querySelector('.album-name').textContent = album.albumName || 'Unknown Album';
+        albumCard.querySelector('.album-song-count').textContent = album.songCount;
+        
+        if (album.year) {
+            albumCard.querySelector('.album-year').textContent = ` • ${album.year}`;
+        }
+        
+        const header = albumCard.querySelector('.album-header');
+        const songsContainer = albumCard.querySelector('.album-songs');
+        const expandIcon = albumCard.querySelector('.expand-icon');
+        
+        // Display songs immediately (already loaded)
+        displayAlbumSongs(songsContainer.querySelector('.album-songs-list'), album.songs);
+        
+        header.addEventListener('click', () => {
+            const isExpanded = songsContainer.style.display === 'block';
+            songsContainer.style.display = isExpanded ? 'none' : 'block';
+            expandIcon.classList.toggle('rotated');
+        });
+        
+        container.appendChild(albumCard);
+    });
+}
+
+function displayAlbumSongs(tbody, songs) {
+    if (!songs || songs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No songs in this album</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = songs.map(song => `
+        <tr>
+            <td>${song.trackNumber || '—'}</td>
+            <td class="song-title" style="cursor: pointer;" onclick="playSongById(${song.id}, -1)">${escapeHtml(song.title)}</td>
+            <td>${song.duration || '--:--'}</td>
+            <td>
+                <button class="play-btn-mini" onclick="playSongById(${song.id}, -1)">
+                    <i class="fas fa-play"></i>
+                </button>
+            </td>
+        </td>
+    `).join('');
+}
+
+function updateLibraryStats(artists) {
+    const totalArtists = artists.length;
+    const totalAlbums = artists.reduce((sum, artist) => sum + artist.albumCount, 0);
+    const totalSongs = artists.reduce((sum, artist) => sum + artist.songCount, 0);
+    
+    document.getElementById('totalArtists').textContent = totalArtists;
+    document.getElementById('totalAlbums').textContent = totalAlbums;
+    document.getElementById('totalSongsLib').textContent = totalSongs;
+}
+
+function setupArtistSearch() {
+    const searchInput = document.getElementById('artistSearch');
+    let debounceTimer;
+    
+    searchInput.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const query = searchInput.value.toLowerCase();
+            filterArtists(query);
+        }, 300);
+    });
+}
+
+function filterArtists(query) {
+    const artistCards = document.querySelectorAll('.artist-card');
+    
+    artistCards.forEach(card => {
+        const artistName = card.querySelector('.artist-name').textContent.toLowerCase();
+        if (!query || artistName.includes(query)) {
+            card.style.display = 'block';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+function showArtistsLoading() {
+    const container = document.getElementById('artistsList');
+    container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading library...</p></div>';
+}
+
+function showLibraryError() {
+    const container = document.getElementById('artistsList');
+    container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load library. Please try again.</p></div>';
+}
+
+function showAlbumsLoading(container) {
+    container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Loading albums...</p></div>';
+    container.style.display = 'block';
+}
+
+function showAlbumsError(container) {
+    container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Failed to load albums</p></div>';
+}
+
+// Update the switchView function to handle library view
+const originalSwitchView = switchView;
+window.switchView = function(viewId) {
+    originalSwitchView(viewId);
+    
+    if (viewId === 'library') {
+        loadLibrary();
+    }
+};
+
+
+// Initialize Application
+document.addEventListener('DOMContentLoaded', () => {
+    initializeEventListeners();
+    
+    // Load initial view (Now Playing)
+    loadSongs(true);
+    setupPlayerControls();
+    addRefreshButton();
+    
+    // Set active nav and view
+    document.querySelector('.nav-link[data-view="playing"]').classList.add('active');
+    document.getElementById('playingView').classList.add('active');
+    document.getElementById('viewTitle').textContent = 'Now Playing';
+});
+
 
 // Add CSS animations
 const style = document.createElement('style');
