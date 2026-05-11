@@ -20,19 +20,23 @@
             </div>
             
             <nav class="nav-links">
-                <a href="#" class="nav-link active" data-view="library">
-                    <i class="fas fa-music"></i>
-                    <span>Library</span>
-                </a>
-                <a href="#" class="nav-link" data-view="playlists">
-                    <i class="fas fa-list"></i>
-                    <span>Playlists</span>
-                </a>
-                <a href="#" class="nav-link" data-view="favorites">
-                    <i class="fas fa-heart"></i>
-                    <span>Favorites</span>
-                </a>
-            </nav>
+			    <a href="#" class="nav-link active" data-view="playing">
+			        <i class="fas fa-music"></i>
+			        <span>Now Playing</span>
+			    </a>
+			    <a href="#" class="nav-link" data-view="library">
+			        <i class="fas fa-headphones"></i>
+			        <span>Library</span>
+			    </a>
+			    <a href="#" class="nav-link" data-view="playlists">
+			        <i class="fas fa-list"></i>
+			        <span>Playlists</span>
+			    </a>
+			    <a href="#" class="nav-link" data-view="favorites">
+			        <i class="fas fa-heart"></i>
+			        <span>Favorites</span>
+			    </a>
+			</nav>
             
             <button id="scanBtn" class="scan-button">
                 <i class="fas fa-sync-alt"></i>
@@ -60,7 +64,7 @@
             
             <div class="content-body">
                 <!-- Library View -->
-                <div id="libraryView" class="view active">
+                <div id="playingView" class="view active">
                     <div class="songs-table-container">
                         <table class="songs-table" id="songsTable">
                             <thead>
@@ -105,6 +109,93 @@
                         <p>Songs you ❤️ will appear here</p>
                     </div>
                 </div>
+                
+                <!-- Library View -->
+				<div id="libraryView" class="view">
+				    <div class="library-container">
+				        <div class="library-stats">
+				            <div class="stat-card">
+				                <i class="fas fa-microphone-alt"></i>
+				                <div>
+				                    <h3 id="totalArtists">0</h3>
+				                    <p>Artists</p>
+				                </div>
+				            </div>
+				            <div class="stat-card">
+				                <i class="fas fa-compact-disc"></i>
+				                <div>
+				                    <h3 id="totalAlbums">0</h3>
+				                    <p>Albums</p>
+				                </div>
+				            </div>
+				            <div class="stat-card">
+				                <i class="fas fa-music"></i>
+				                <div>
+				                    <h3 id="totalSongsLib">0</h3>
+				                    <p>Songs</p>
+				                </div>
+				            </div>
+				        </div>
+				        
+				        <div class="library-search">
+				            <i class="fas fa-search"></i>
+				            <input type="text" id="artistSearch" placeholder="Search artists...">
+				        </div>
+				        
+				        <div id="artistsList" class="artists-grid">
+				            <!-- Artists will be dynamically loaded here -->
+				        </div>
+				    </div>
+				</div>
+				
+				<!-- Hidden templates for dynamic content -->
+				<template id="artistCardTemplate">
+				    <div class="artist-card">
+				        <div class="artist-header">
+				            <i class="fas fa-user-circle"></i>
+				            <div class="artist-info">
+				                <h3 class="artist-name"></h3>
+				                <div class="artist-stats">
+				                    <span><i class="fas fa-compact-disc"></i> <span class="album-count"></span> albums</span>
+				                    <span><i class="fas fa-music"></i> <span class="song-count"></span> songs</span>
+				                </div>
+				            </div>
+				            <i class="fas fa-chevron-down expand-icon"></i>
+				        </div>
+				        <div class="artist-albums" style="display: none;">
+				            <!-- Albums will be loaded here -->
+				        </div>
+				    </div>
+				</template>
+				
+				<template id="albumTemplate">
+				    <div class="album-card">
+				        <div class="album-header">
+				            <i class="fas fa-folder-music"></i>
+				            <div class="album-info">
+				                <h4 class="album-name"></h4>
+				                <div class="album-stats">
+				                    <span><i class="fas fa-music"></i> <span class="album-song-count"></span> songs</span>
+				                    <span class="album-year"></span>
+				                </div>
+				            </div>
+				            <i class="fas fa-chevron-down expand-icon"></i>
+				        </div>
+				        <div class="album-songs" style="display: none;">
+				            <table class="songs-table">
+				                <thead>
+				                    <tr>
+				                        <th>#</th>
+				                        <th>Title</th>
+				                        <th>Duration</th>
+				                        <th></th>
+				                    </tr>
+				                </thead>
+				                <tbody class="album-songs-list"></tbody>
+				            </table>
+				        </div>
+				    </div>
+				</template>
             </div>
         </main>
         
